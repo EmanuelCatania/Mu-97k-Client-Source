@@ -605,9 +605,12 @@ void __cdecl Player_ProcessInput(void)
     if (*(char*)((int)DAT_07abf5d8 + 0x2fd) != '\0')
         return;
 
-    // ── Cooldown counter (HashTable obfuscation omitted) ─────────────────────
-    // Original: HashTable manipulates DAT_07e11d1c; effective result is a decrement
-    // then a range check.
+    // ── Contador de cooldown (se omite la ofuscación de HashTable) ─────────────
+    // Original: FUN_004acef0 decrementa DAT_07e11d1c cada frame si es > 0,
+    // y luego verifica el límite de rango (0x1e).
+    if (DAT_07e11d1c > 0)
+        --DAT_07e11d1c;
+
     if (DAT_07e11d1c > 0x1e)
         return;
 

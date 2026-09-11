@@ -2631,59 +2631,59 @@ int __cdecl FUN_0047e3c0(int characterMachine, int /*p2*/, int /*p3*/) {
     *(unsigned char*)(this_ + 1407) = ((v7 % 100) < *(unsigned short*)(this_ + 1404)) ? 1 : 0;
     return v7 / 100;
 }
-// FUN_004ac140 @ 0x004AC140 — NPC_Script_Tick(void)
-// Scans NPC script table (DAT_07cf5600, stride 8, 100 entries).
-// Entry layout: [0]=active(1), [1]=required_substate, [2]=min_x, [3]=min_y, [4]=max_x, [5]=max_y, [8]=speed
-// Si se cumplen las condiciones y pasaron 3000ms: manda el keepalive C1/01/1C y actualiza el estado.
-// Además: si DAT_07e11d1c no es nulo o entity+0x305 está seteado → muestra texto de UI vía FUN_00480620.
-// Las llamadas a HashTable (FUN_0043d3e0 / FUN_004233e0) sobre las lecturas de cached_wp son ruido anti-tamper.
+// Declaración anticipada de Net_SendSmallPacket (implementada en Game_SceneUpdate.cpp)
+extern void Net_SendSmallPacket(const BYTE* pkt, int totalLen);
+
+// FUN_004ac140 @ 0x004AC140 — CheckGate(void)
+// Escanea la tabla de gates (DAT_07cf5600, paso 9, 100 entradas, cargadas desde Data/Gate.bmd vía Gate_LoadBMD).
+// Layout de entrada (9 bytes): [0]=flag (1=entrada activa), [1]=map, [2]=min_x, [3]=min_y, [4]=max_x, [5]=max_y,
+//                              [6]=target_gate, [7]=dir, [8]=require_level
+// Si el gate coincide con el mapa y la posición, procesa las validaciones portadas y el envío.
+// arma y envía el paquete PMSG_TELEPORT_RECV (0xC1 0x06 0x1C gate 00 00) vía Net_SendSmallPacket (encriptado C3).
 void __cdecl FUN_004ac140(void)
 {
-    static const unsigned char xorKey[32] = {
-        0xe7,0x6d,0x3a,0x89,0xbc,0xb2,0x9f,0x73,0x23,0xa8,0xfe,0xb6,0x49,0x5d,0x39,0x5d,
-        0x8a,0xcb,0x63,0x8d,0xea,0x7d,0x2b,0x5f,0xc3,0xb1,0xe9,0x83,0x29,0x51,0xe8,0x56
-    };
-
     for (int entry = 0; entry < 100; entry++) {
-        // Entry address in script table (stride 8)
-        // DAT_07cf5600 es un puntero DWORD a un buffer alocado con malloc
-        char* scriptBase = (char*)DAT_07cf5600;
-        char* eptr  = scriptBase + entry * 8;
+        const unsigned char* eptr = (const unsigned char*)DAT_07cf5600 + entry * 9;
 
-        // Tiene que estar activo y coincidir con el sub-estado actual
-        if (eptr[0] != '\x01') goto next_entry;
-        if ((unsigned char)eptr[1] != (unsigned char)DAT_0055a7ac) goto next_entry;
+        // La entrada debe ser un gate de entrada activo (flag == 1) y coincidir con el mapa actual (DAT_0055a7ac)
+        if (eptr[0] != 1) goto next_entry;
+        if (eptr[1] != (unsigned char)DAT_0055a7ac) goto next_entry;
 
         {
             char* playerEntity = DAT_07abf5d8;
             int cachedX = *(int*)(playerEntity + 0x388);
             int cachedY = *(int*)(playerEntity + 0x38c);
 
-            // Bounding box check
-            if ((int)(unsigned char)eptr[2] > cachedX) goto next_entry;
-            if ((int)(unsigned char)eptr[3] > cachedY) goto next_entry;
-            if (cachedX > (int)(unsigned char)eptr[4]) goto next_entry;
-            if (cachedY > (int)(unsigned char)eptr[5]) goto next_entry;
+            // Chequeo de bounding box
+            if (cachedX < (int)eptr[2]) goto next_entry;
+            if (cachedY < (int)eptr[3]) goto next_entry;
+            if (cachedX > (int)eptr[4]) goto next_entry;
+            if (cachedY > (int)eptr[5]) goto next_entry;
 
-            // Check dialog state and player busy flag
+            // Chequeo de estado de carga y flag de jugador ocupado
             if (DAT_07e11d1c != 0 || *(char*)(playerEntity + 0x305) != '\0') {
-                // Dialog active or busy — show UI messages but don't send
-                // (las llamadas a FUN_00480620 se omiten — son sólo UI)
                 goto next_entry;
             }
 
-            // Speed threshold for running entities
-            unsigned int speedReq = (unsigned int)(unsigned char)eptr[8];
-            if ((*(unsigned char*)(playerEntity + 0x1bc) & 7) == 3)
-                speedReq = (speedReq << 1) / 3;
+            // Cálculo de nivel requerido: Magic Gladiator (clase & 7 == 3) requiere 2/3 del nivel
+            unsigned int reqLevel = (unsigned int)eptr[8];
+            if ((*(unsigned char*)(playerEntity + 0x1bc) & 7) == 3) {
+                reqLevel = (reqLevel * 2) / 3;
+            }
 
             // Chequeo especial para la entrada 0x1c: compara el nivel con el de CharData
             if (entry == 0x1c) {
                 unsigned short charLevel = *(unsigned short*)((char*)DAT_07cf1ff4 + 0xe);
-                if (charLevel < speedReq) goto acec0;
+                if (charLevel < reqLevel) goto next_entry;
             }
 
-            // Timer check: 3000ms keepalive
+            // Chequeo de cooldown (3000 ms entre peticiones de teleporte por gate)
+            if (DAT_05826d14 != 0 || DAT_07e11dc4 != 0) {
+                DAT_07e11dc4 = 0;
+                DAT_07e11d1c = 0;
+                goto next_entry;
+            }
+
             DWORD now = GetTickCount();
             if (now - DAT_07e11dc8 <= 2999) {
                 DAT_07e11dc4 = 0;
@@ -2691,50 +2691,22 @@ void __cdecl FUN_004ac140(void)
                 goto next_entry;
             }
 
-            // Hora de enviar: marca la primera entrada
             if (entry == 0) {
                 DAT_05826d14 = '\x01';
             }
 
-            // Build C1/01/1C keepalive packet
-            // Payload: C1 04 00 1C (4 bytes before XOR)
-            unsigned char pktBuf[8];
-            pktBuf[0] = 0xC1;
-            pktBuf[1] = 4;
-            pktBuf[2] = 0x00;
-            pktBuf[3] = 0x1C;
+            // Armar y enviar paquete PMSG_TELEPORT_RECV: C1 06 1C gate 00 00
+            // Net_SendSmallPacket maneja chain-XOR, serial en pkt[1] y encriptación SimpleModulus C3.
+            BYTE pkt[6];
+            pkt[0] = 0xC1;
+            pkt[1] = 6;
+            pkt[2] = 0x1C;
+            pkt[3] = (BYTE)entry;
+            pkt[4] = 0;
+            pkt[5] = 0;
+            Net_SendSmallPacket(pkt, sizeof(pkt));
 
-            // Codifica con XOR el byte 3 (opcode) — sólo hay 1 byte de datos después del header
-            pktBuf[3] ^= xorKey[3 & 0x1f] ^ pktBuf[2];
-
-            // Send
-            if (DAT_055ca168 != 0xFFFFFFFF) {
-                int offset = 0, remaining = 4;
-                unsigned int pktLen = 4;
-                while (remaining > 0) {
-                    int sent = send((SOCKET)DAT_055ca168, (const char*)pktBuf + offset, remaining, 0);
-                    if (sent == -1) {
-                        int err = WSAGetLastError();
-                        if (err == 0x2733) {
-                            if ((int)(DAT_055cc16c + pktLen) < 0x2001) {
-                                memcpy((char*)DAT_055ca16c + DAT_055cc16c, pktBuf, pktLen);
-                                DAT_055cc16c += pktLen;
-                            } else {
-                                Net_Disconnect(((int)(uintptr_t)DAT_055ca160));
-                            }
-                        } else {
-                            Net_Disconnect(((int)(uintptr_t)DAT_055ca160));
-                        }
-                        break;
-                    }
-                    if (sent == 0) break;
-                    remaining -= sent;
-                    offset += sent;
-                    if (DAT_055ce174 != 0) FUN_0043de60();
-                }
-            }
-
-            // Post-send: clear hover targets, set dialog-active, reset timer state
+            // Post-envío: limpiar objetivos de selección, marcar teleporte pendiente y reiniciar contador de pasos
             SelectedItem = 0xffffffff;
             SelectedNpc = 0xffffffff;
             SelectedCharacter = 0xffffffff;
@@ -2745,8 +2717,7 @@ void __cdecl FUN_004ac140(void)
             goto next_entry;
         }
 
-acec0:;
-next_entry:;
+    next_entry:;
     }
 }
 
