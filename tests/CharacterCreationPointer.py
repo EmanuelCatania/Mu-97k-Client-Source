@@ -13,6 +13,7 @@ import tempfile
 
 from GatePointer import PREAMBLE
 from SceneObjectPointer import build_and_run, function, read_source
+from LegacyEntityLayout import opaque_cloth_fields
 
 SERVICES = r'''
 #include <array>
@@ -54,6 +55,10 @@ void CreateCharacterPointer(unsigned char* slot, int type, int x, int y, float r
 }
 void DeleteCloth(int c, int o, int flag) {
     Require(!safeMode && std::uint32_t(c) == std::uint32_t(reinterpret_cast<std::uintptr_t>(expectedSlot)) && c == o && flag == 0);
+    ++cleanupCalls; events.push_back(40000);
+}
+void DeleteCloth(CHARACTER* c, OBJECT* o, PART_t* part) {
+    Require(static_cast<void*>(c)==expectedSlot && static_cast<void*>(o)==expectedSlot && part==nullptr);
     ++cleanupCalls; events.push_back(40000);
 }
 void OpenMonsterModel(int id) { events.push_back(10000 + id); }
@@ -172,10 +177,12 @@ def harness(revision=None):
     # Son campos opacos de 32 bits en este fixture; no se certifican como punteros.
     obj = re.sub(r"OBJECT\*\s+Owner", "std::uint32_t Owner", obj)
     obj = re.sub(r"vec34_t\*\s+BoneMatrices", "std::uint32_t BoneMatrices", obj)
+    obj = re.sub(r"OBJECT\*\s+(ScenePrevious|SceneNext)\b", r"std::uint32_t \1", obj)
     records = "\n#pragma pack(push, 1)\n" + obj
     for name in ("PART_t", "CHARACTER"):
         records += re.search(rf"struct {name}\s*\{{.*?\}};", types, re.S).group()
     records += "\n#pragma pack(pop)\n"
+    records = opaque_cloth_fields(records)
     constants = "\n".join(re.findall(r"^constexpr\s+(?:int|short)\s+\w+\s*=[^;]+;", read_source("src/Item/ItemDefines.h", revision), re.M))
     header, globals_source = read_source("src/globals.h", revision), read_source("src/globals.cpp", revision)
     definitions = ""
