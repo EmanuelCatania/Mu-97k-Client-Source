@@ -1,5 +1,7 @@
 # Mu Online 0.97k — reconstrucción del código fuente
 
+> **Este repositorio se mudó.** Desde 0.97.40 el cliente vive en [**EmanuelCatania/Mu-Linux**](https://github.com/EmanuelCatania/Mu-Linux), en la carpeta [`client/`](https://github.com/EmanuelCatania/Mu-Linux/tree/main/client), junto con el servidor y con todo su historial. Este repo queda archivado: las Releases hasta 0.97.40 siguen disponibles acá, pero los issues, los PR y las versiones nuevas van en Mu-Linux.
+
 [![Sitio web](https://img.shields.io/badge/sitio%20web-mu--linux.com-0ea5e9?logo=googlechrome&logoColor=white)](https://mu-linux.com/es/)
 
 🇪🇸 Español | [🇺🇸 English](README.en.md) | [🇧🇷 Português](README.pt-BR.md)
